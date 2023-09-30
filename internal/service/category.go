@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"io"
 
 	"github.com/bjmvercelli/go-grpc-poc/internal/database"
 	"github.com/bjmvercelli/go-grpc-poc/internal/pb"
@@ -66,4 +67,62 @@ func (c *CategoryService) GetCategory(ctx context.Context, in *pb.CategoryGetReq
 		Name:        category.Name,
 		Description: category.Description,
 	}, nil
+}
+
+func (c *CategoryService) CreateCategoryStream(stream pb.CategoryService_CreateCategoryStreamServer) error {
+	categories := &pb.CategoryList{}
+
+	for {
+		category, err := stream.Recv()
+
+		if err == io.EOF {
+			return stream.SendAndClose(categories)
+		}
+
+		if err != nil {
+			return status.Errorf(codes.Internal, "Error receiving category: %v", err)
+		}
+
+		createdCategory, err := c.CategoryDB.Create(category.Name, category.Description)
+
+		if err != nil {
+			return status.Errorf(codes.Internal, "Error creating category: %v", err)
+		}
+
+		categories.Categories = append(categories.Categories, &pb.Category{
+			Id:          createdCategory.ID,
+			Name:        createdCategory.Name,
+			Description: createdCategory.Description,
+		})
+	}
+}
+
+func (c *CategoryService) CreateCategoryBiDiStream(stream pb.CategoryService_CreateCategoryBiDiStreamServer) error {
+	for {
+		category, err := stream.Recv()
+
+		if err == io.EOF {
+			return nil
+		}
+
+		if err != nil {
+			return err
+		}
+
+		createdCategory, err := c.CategoryDB.Create(category.Name, category.Description)
+
+		if err != nil {
+			return err
+		}
+
+		err = stream.Send(&pb.Category{
+			Id:          createdCategory.ID,
+			Name:        category.Name,
+			Description: category.Description,
+		})
+
+		if err != nil {
+			return err
+		}
+	}
 }
